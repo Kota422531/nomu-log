@@ -1,6 +1,9 @@
 import * as C from './cycle.js';
 import { load, save, defaultState, importJSON, hashPin, requestPersist } from './store.js';
 import * as Push from './push.js';
+import { tanuki } from './mascot.js';
+
+const PAW = '<svg class="paw" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="21" rx="7.5" ry="6.5"/><circle cx="7.5" cy="13" r="3.4"/><circle cx="12.5" cy="7.5" r="3.4"/><circle cx="19.5" cy="7.5" r="3.4"/><circle cx="24.5" cy="13" r="3.4"/></svg>';
 
 const APP_VERSION = '1.0.0';
 const $ = (s, r = document) => r.querySelector(s);
@@ -69,10 +72,10 @@ function setTaken(date, taken, at) {
 // ---------- 画面: 今日 ----------
 function phaseLabel(info) {
   const s = state.settings;
-  if (info.phase === 'rest') return { big: `休薬 ${info.restDay}日目`, sub: `${info.restTotal}日間のうち`, cls: 'rest' };
+  if (info.phase === 'rest') return { big: `休薬 <em>${info.restDay}</em>日目`, sub: `${info.restTotal}日間のうち`, cls: 'rest' };
   if (info.phase !== 'active') return { big: 'まだ始まっていません', sub: '', cls: 'none' };
-  if (s.mode === 'fixed') return { big: `服用 ${info.day}日目`, sub: `${s.fixed.activeDays}日間のうち`, cls: 'active' };
-  return { big: `連続服用 ${info.day}日目`, sub: '休薬日は自分で選ぶ設定', cls: 'active' };
+  if (s.mode === 'fixed') return { big: `服用 <em>${info.day}</em>日目`, sub: `${s.fixed.activeDays}日間のうち`, cls: 'active' };
+  return { big: `連続服用 <em>${info.day}</em>日目`, sub: '休薬日は自分で選ぶ設定', cls: 'active' };
 }
 
 function sheetGrid(today) {
@@ -122,18 +125,25 @@ function renderToday() {
   const log = state.logs[today];
   let hero = '';
 
+  const nowMin = new Date().getHours() * 60 + new Date().getMinutes();
+  const [th, tm] = s.time.split(':').map(Number);
+  const pastTime = nowMin >= th * 60 + tm;
+  let mood = 'normal', say = '今日もいっしょにがんばろうね';
   if (info.phase === 'active') {
+    if (taken) { mood = 'happy'; say = 'えらい！今日もばっちりだね'; }
+    else if (pastTime) { say = `${s.time} になったよ。おくすり飲んだ？`; }
+    else { say = `${s.time} になったらお知らせするね`; }
     hero = taken
-      ? `<button class="take-btn done" id="untake" aria-label="記録を取り消す">
-           <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 25l7 7 14-15"/></svg>
-           <b>飲みました</b><small>${esc(log.at)} に記録<br>タップで取り消し</small></button>`
-      : `<button class="take-btn" id="take">
-           <span class="ring"></span><b>飲んだ</b><small>タップで記録</small></button>`;
+      ? `<button class="take-done" id="untake" aria-label="記録を取り消す">
+           <b>のみました！</b><small>${esc(log.at)} に記録 ・ タップで取り消し</small></button>`
+      : `<button class="take-btn" id="take"><span class="ring"></span>${PAW}<b>のんだ！</b></button>`;
   } else if (info.phase === 'rest') {
+    mood = 'sleepy'; say = '今日はお休みの日。ゆっくりしてね';
     const next = C.addDays(today, info.restTotal - info.restDay + 1);
-    hero = `<div class="rest-hero"><b>今日は休薬日です</b><small>次の服用開始 ${fmt(next)}<br>休薬中は通知をお休みします</small></div>`;
+    hero = `<div class="rest-hero"><b>今日は休薬日</b><small>次の服用開始は ${fmt(next)}<br>休薬中は通知もお休みするよ</small></div>`;
   } else {
     const first = state.cycles.map((c) => c.start).sort()[0];
+    say = 'もうすぐスタートだね';
     hero = `<div class="rest-hero"><b>${fmt(first)}から服用開始</b></div>`;
   }
 
@@ -142,6 +152,7 @@ function renderToday() {
   const y = C.addDays(today, -1);
   const yInfo = C.dayInfo(state, y);
   if (yInfo.phase === 'active' && C.dayStatus(state, y, today) === 'missed' && !(state.logs[y] && state.logs[y].missedAck)) {
+    if (!taken && info.phase !== 'rest') { mood = 'worried'; say = '昨日の記録がないみたい…大丈夫？'; }
     alertCard = `<section class="card alert">
       <div class="alert-text"><b>昨日(${fmtShort(y)})の記録がありません</b><span>飲んでいたら記録してください。</span></div>
       <div class="btn-row tight">
@@ -198,10 +209,11 @@ function renderToday() {
 
   return `
     <section class="hero ${pl.cls}">
+      <div class="buddy"><div class="bubble">${esc(say)}</div>${tanuki(mood, 132)}</div>
       ${s.medName ? `<div class="medname">${esc(s.medName)}</div>` : ''}
       <div class="phase"><b>${pl.big}</b><span>${pl.sub}</span></div>
       ${hero}
-      ${info.phase === 'active' && !taken ? `<p class="muted center small">通知 ${esc(s.time)}${state.push.enabled ? '' : '(通知は設定からオン)'}</p>` : ''}
+      ${info.phase === 'active' && !taken ? `<span class="time-chip">🔔 ${esc(s.time)}${state.push.enabled ? ' にお知らせ' : '(通知は設定からオン)'}</span>` : ''}
     </section>
     ${alertCard}${restCard}${stockCard}${visitCard}
     ${sheetGrid(today)}`;
@@ -403,7 +415,7 @@ function setupForm(first) {
   const curDay = info.phase === 'rest' ? info.restDay : (info.day || 1);
   return `
   <form id="setup" class="setup">
-    ${first ? `<div class="welcome"><h2>はじめに</h2><p>服用のしかたを教えてください。あとから設定で変えられます。記録はこのスマホの中だけに保存されます。</p></div>
+    ${first ? `<div class="welcome"><div class="buddy"><div class="bubble">はじめまして！たぬきのぽんちゃんだよ</div>${tanuki('happy', 120)}</div><h2>はじめに</h2><p>おくすりの飲み方を教えてね。あとから設定で変えられるよ。記録はこのスマホの中だけに保存されます。</p></div>
     <label class="field"><span>お薬の名前(任意・画面に表示するだけ)</span><input name="medName" value="${esc(s.medName)}" placeholder="例: いつものお薬"></label>` : '<h2 class="sheet-title">服用パターン</h2>'}
     <fieldset class="field"><legend>服用パターン</legend>
       <div class="radios">${PRESETS.map((p) => `<label class="radio"><input type="radio" name="preset" value="${p.id}" ${p.id === cur ? 'checked' : ''}><span>${p.label}</span></label>`).join('')}</div>
@@ -677,6 +689,11 @@ if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('sw', e));
   navigator.serviceWorker.addEventListener('message', (e) => { if (e.data && e.data.type === 'open-today') go('today'); });
 }
+
+document.querySelectorAll('.brand-dot').forEach((el) => {
+  const big = el.closest('.brand.big');
+  el.innerHTML = tanuki('normal', big ? 110 : 30);
+});
 
 render();
 showLock();

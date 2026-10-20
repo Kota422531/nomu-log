@@ -1,8 +1,8 @@
 // のむログ service worker: オフライン表示とプッシュ通知
-const CACHE = 'nomulog-v1';
+const CACHE = 'nomulog-v2';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css',
-  './js/app.js', './js/cycle.js', './js/store.js', './js/push.js', './js/firebase-config.js',
+  './js/app.js', './js/mascot.js', './js/cycle.js', './js/store.js', './js/push.js', './js/firebase-config.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
 ];
 
