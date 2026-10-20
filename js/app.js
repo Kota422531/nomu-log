@@ -138,7 +138,7 @@ function renderToday() {
            <b>のみました！</b><small>${esc(log.at)} に記録 ・ タップで取り消し</small></button>`
       : `<button class="take-btn" id="take"><span class="ring"></span>${PAW}<b>のんだ！</b></button>`;
   } else if (info.phase === 'rest') {
-    mood = 'sleepy'; say = '今日はお休みの日。ゆっくりしてね';
+    mood = 'sleepy'; say = '今日はお休みの日。ゆっくり休んでね';
     const next = C.addDays(today, info.restTotal - info.restDay + 1);
     hero = `<div class="rest-hero"><b>今日は休薬日</b><small>次の服用開始は ${fmt(next)}<br>休薬中は通知もお休みするよ</small></div>`;
   } else {
@@ -415,7 +415,7 @@ function setupForm(first) {
   const curDay = info.phase === 'rest' ? info.restDay : (info.day || 1);
   return `
   <form id="setup" class="setup">
-    ${first ? `<div class="welcome"><div class="buddy"><div class="bubble">はじめまして！たぬきのぽんちゃんだよ</div>${tanuki('happy', 120)}</div><h2>はじめに</h2><p>おくすりの飲み方を教えてね。あとから設定で変えられるよ。記録はこのスマホの中だけに保存されます。</p></div>
+    ${first ? `<div class="welcome"><div class="buddy"><div class="bubble">はじめまして！ぽんちゃんだよ</div>${tanuki('happy', 120)}</div><h2>はじめに</h2><p>おくすりの飲み方を教えてね。あとから設定で変えられるよ。記録はこのスマホの中だけに保存されます。</p></div>
     <label class="field"><span>お薬の名前(任意・画面に表示するだけ)</span><input name="medName" value="${esc(s.medName)}" placeholder="例: いつものお薬"></label>` : '<h2 class="sheet-title">服用パターン</h2>'}
     <fieldset class="field"><legend>服用パターン</legend>
       <div class="radios">${PRESETS.map((p) => `<label class="radio"><input type="radio" name="preset" value="${p.id}" ${p.id === cur ? 'checked' : ''}><span>${p.label}</span></label>`).join('')}</div>
