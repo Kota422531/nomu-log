@@ -46,6 +46,8 @@ exports.medReminder = onSchedule(
 
       const update = { sent: { day, keys: [...prevKeys, ...newKeys] } };
       if (list.some((n) => n.clearTest)) update.testRequested = FieldValue.delete();
+      const prep = list.find((n) => n.sheetPrep && newKeys.includes(n.key));
+      if (prep) update.sheetPrepSent = prep.sheetPrep;
       if (dropToken) { update.token = FieldValue.delete(); update.enabled = false; }
       await docSnap.ref.set(update, { merge: true });
     }));

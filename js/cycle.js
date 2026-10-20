@@ -170,3 +170,56 @@ export function buildSchedule(state, today = todayStr(), days = 400) {
     lowStock: rem != null && rem <= state.settings.lowStockAt,
   };
 }
+
+// ---------- 錠剤シート ----------
+// state.sheet = { since: 'YYYY-MM-DD', used: n }
+//   since の日より前に、今のシートから n 錠飲んでいた(記録はない)という起点。
+//   以降は「飲んだ」記録の順に 1 錠ずつ消費し、sheetSize 錠でつぎのシートへ進む。
+export function sheetView(state, today = todayStr()) {
+  const size = Math.max(7, Number(state.settings.sheetSize) || 28);
+  const anchor = state.sheet || { since: (state.cycles[0] && state.cycles[0].start) || today, used: 0 };
+  const pre = [];
+  for (let k = anchor.used; k >= 1; k--) pre.push({ date: addDays(anchor.since, -k), assumed: true });
+  const real = Object.keys(state.logs || {})
+    .filter((d) => d >= anchor.since && state.logs[d].taken)
+    .sort()
+    .map((date) => ({ date }));
+  const doses = pre.concat(real);
+  const used = doses.length;
+  let index = Math.floor(used / size);
+  // 今日の分でちょうど飲み終えたシートは、その日のうちは表示したままにする
+  if (used > 0 && used % size === 0 && doses[used - 1].date === today) index -= 1;
+  const pills = [];
+  for (let i = 0; i < size; i++) {
+    const dose = doses[index * size + i];
+    if (!dose) { pills.push({ taken: false }); continue; }
+    const info = dayInfo(state, dose.date);
+    pills.push({
+      taken: true,
+      date: dose.date,
+      assumed: !!dose.assumed,
+      label: info.phase === 'active' ? info.day : (info.phase === 'rest' ? '休' : ''),
+    });
+  }
+  const usedInSheet = used - index * size;
+  const rows = Math.ceil(size / 7);
+  return {
+    id: `${anchor.since}#${index}`,
+    index, size, rows, pills, usedInSheet,
+    nextPill: usedInSheet < size ? usedInSheet : -1,
+    remaining: size - usedInSheet,
+    // 最後の 1 列を残して、それより前の列を飲み終えた(28 錠なら 3 列目まで)
+    prepDue: rows >= 2 && usedInSheet >= size - 7,
+  };
+}
+
+// いまのシートで何錠飲んだか(今日の分を含む)を合わせ直す
+export function setSheetUsed(state, n, today = todayStr()) {
+  const takenToday = isTaken(state, today) ? 1 : 0;
+  state.sheet = { since: today, used: Math.max(0, n - takenToday) };
+}
+
+// 新しいシートに切り替える(次に飲む 1 錠目から)
+export function startNewSheet(state, today = todayStr()) {
+  state.sheet = { since: isTaken(state, today) ? addDays(today, 1) : today, used: 0 };
+}

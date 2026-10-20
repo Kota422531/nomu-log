@@ -74,3 +74,46 @@ console.log('cycle tests: all passed');
   assert.equal(C.dayStatus(s, '2026-10-21', '2026-10-22'), 'missed');
   console.log('trackSince tests: passed');
 }
+// 錠剤シート
+{
+  const s = base('flexible');
+  s.settings.sheetSize = 28;
+  C.resetCycles(s, { phase: 'active', day: 4 }, '2026-10-20'); // 今日が4日目
+  C.setSheetUsed(s, 0, '2026-10-20');                            // 新しいシート
+  s.logs['2026-10-20'] = { taken: true };
+  let v = C.sheetView(s, '2026-10-20');
+  assert.equal(v.pills[0].label, 4);                 // 1錠目のラベル = 服薬開始からの日数
+  assert.equal(v.usedInSheet, 1); assert.equal(v.nextPill, 1);
+  // 21日分飲む(3列目まで)
+  for (let i = 1; i < 21; i++) s.logs[C.addDays('2026-10-20', i)] = { taken: true };
+  v = C.sheetView(s, '2026-11-09');
+  assert.equal(v.usedInSheet, 21); assert.equal(v.prepDue, true); assert.equal(v.pills[20].label, 24);
+  v = C.sheetView(s, '2026-11-08'); // 1日前は20錠
+  // 飲み忘れた日があっても日数は暦どおり(ラベルが1つ飛ぶ)
+  const t = base('flexible');
+  C.resetCycles(t, { phase: 'active', day: 1 }, '2026-10-01'); C.setSheetUsed(t, 0, '2026-10-01');
+  t.logs = { '2026-10-01': { taken: true }, '2026-10-03': { taken: true } };
+  v = C.sheetView(t, '2026-10-03');
+  assert.deepEqual(v.pills.slice(0, 2).map((p) => p.label), [1, 3]);
+  // 28錠でつぎのシート。飲み終えた当日はそのまま表示
+  for (let i = 0; i < 28; i++) t.logs[C.addDays('2026-10-01', i)] = { taken: true };
+  assert.equal(C.sheetView(t, '2026-10-28').index, 0);
+  assert.equal(C.sheetView(t, '2026-10-29').index, 1);
+  assert.equal(C.sheetView(t, '2026-10-29').usedInSheet, 0);
+  // 途中から登録: 今日の分を含めて5錠飲んだシート
+  const u = base('flexible');
+  C.resetCycles(u, { phase: 'active', day: 9 }, '2026-10-20');
+  u.logs['2026-10-20'] = { taken: true };
+  C.setSheetUsed(u, 5, '2026-10-20');
+  v = C.sheetView(u, '2026-10-20');
+  assert.equal(v.usedInSheet, 5); assert.equal(v.pills[4].label, 9); assert.equal(v.pills[0].assumed, true);
+  // 休薬を選ぶとラベルは休薬明けに1から
+  const w = base('flexible');
+  C.resetCycles(w, { phase: 'active', day: 25 }, '2026-10-20'); C.setSheetUsed(w, 0, '2026-10-20');
+  w.logs['2026-10-20'] = { taken: true };
+  C.startRest(w, '2026-10-21');
+  w.logs['2026-10-25'] = { taken: true };
+  v = C.sheetView(w, '2026-10-25');
+  assert.deepEqual(v.pills.slice(0, 2).map((p) => p.label), [25, 1]);
+  console.log('sheet tests: passed');
+}

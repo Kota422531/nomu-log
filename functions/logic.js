@@ -46,6 +46,11 @@ function decide(doc, now = new Date()) {
     }
   }
 
+  // 次のシートの準備(シートごとに1回だけ)
+  if (doc.sheetPrep && doc.sheetPrepSent !== doc.sheetPrep) {
+    push({ key: `sheet-${doc.sheetPrep}`, title: '次のシートを準備しましたか?', body: '今のシートの3列目まで飲み終わりました。次のシートの用意や受診の予約を確認しておきましょう。', tag: 'sheet', sheetPrep: doc.sheetPrep });
+  }
+
   // 受診日の前日
   if ((doc.visitEves || []).includes(day) && inWindow(base)) {
     push({ key: 'visit', title: '明日は受診日です', body: '時間と持ち物を確認しておきましょう。', tag: 'visit' });

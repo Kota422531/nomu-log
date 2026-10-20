@@ -304,3 +304,73 @@ input:focus, select:focus, textarea:focus { outline: none; border-color: var(--a
   background: var(--text); color: var(--bg); padding: 10px 18px; border-radius: 99px; font-size: 14px;
   max-width: calc(100vw - 32px); text-align: center;
 }
+
+/* ---------- 錠剤シート(実物のシートと同じ並び) ---------- */
+.blister-card { padding-bottom: 12px; }
+.blister {
+  background: #fff; border: 2px solid #4b4146; border-radius: 6px;
+  padding: 14px 8px 12px 32px; position: relative;
+}
+.b-row { display: grid; grid-template-columns: repeat(7, 1fr); }
+.b-cell { position: relative; display: grid; justify-items: center; gap: 4px; padding: 6px 0 8px; }
+.b-cell.stripe { background: #fbd3dd; }
+.b-row:first-child .b-cell.stripe { border-radius: 2px 2px 0 0; }
+.b-row:last-child .b-cell.stripe { border-radius: 0 0 2px 2px; }
+.b-label {
+  width: 84%; height: 20px; border: 1.5px solid #9a9195; border-radius: 3px; background: #fff;
+  font-size: 13px; font-weight: 800; line-height: 17px; text-align: center; color: #2d2528;
+}
+.b-label.rest { color: var(--rest); }
+.b-wrap { position: relative; width: 100%; display: grid; place-items: center; }
+/* 錠剤のあいだの ▶ */
+.b-cell:not(:last-child) .b-wrap::after {
+  content: ""; position: absolute; right: -4px; top: 50%; transform: translateY(-50%);
+  border: 5px solid transparent; border-left: 6px solid #b7aeb2; border-right: 0;
+}
+/* 2列目以降の行の先頭 ▶ */
+.b-row:not(:first-child) .b-cell:first-child .b-wrap::before {
+  content: ""; position: absolute; left: -18px; top: 50%; transform: translateY(-50%);
+  border: 5px solid transparent; border-left: 7px solid #b7aeb2; border-right: 0;
+}
+.b-pill {
+  position: relative; z-index: 1;
+  width: min(40px, 10vw); aspect-ratio: 1; border-radius: 50%; padding: 0; cursor: default;
+  border: 4px solid #4b4146;
+  background: radial-gradient(circle at 34% 30%, #fff 0 9%, #ffd9e3 22%, #f6a9bd 62%, #ec8ea8 100%);
+  box-shadow: inset -2px -3px 4px rgba(0,0,0,.08), 0 2px 3px rgba(0,0,0,.18);
+}
+.b-pill.taken {
+  cursor: pointer;
+  background: radial-gradient(circle at 36% 32%, #8a8487 0 10%, #5d575a 45%, #3f3a3d 100%);
+  border-color: #3a3336;
+}
+.b-pill.next {
+  cursor: pointer; border-color: var(--accent-deep);
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent), 0 2px 3px rgba(0,0,0,.18);
+  animation: nextpill 1.6s ease-in-out infinite;
+}
+@keyframes nextpill { 50% { box-shadow: 0 0 0 7px color-mix(in srgb, var(--accent) 18%, transparent), 0 2px 3px rgba(0,0,0,.18); } }
+/* スタートの目印 */
+.b-start {
+  position: absolute; left: -31px; top: 50%; transform: translateY(-50%); z-index: 2; white-space: nowrap; height: 48px; text-align: center;
+  writing-mode: vertical-rl; pointer-events: none; font-size: 10px; font-weight: 800; color: #e2536f; letter-spacing: .02em; line-height: 1;
+}
+.b-row:first-child .b-cell:first-child .b-wrap::before {
+  content: ""; position: absolute; left: 50%; top: 50%; width: 50px; height: 46px; transform: translate(-56%, -50%);
+  pointer-events: none; z-index: 0; background: #8fcbe8; opacity: .55; clip-path: polygon(0 15%, 70% 15%, 100% 50%, 70% 85%, 0 85%); border-radius: 6px;
+}
+.sheet-note { color: var(--muted); font-size: 12px; margin: 10px 2px 0 !important; }
+.rest-band {
+  display: flex; align-items: center; gap: 10px; background: var(--rest-soft); color: var(--text);
+  border-radius: 14px; padding: 8px 12px; margin-bottom: 10px; font-size: 14px; font-weight: 700;
+}
+.rest-band b { background: var(--rest); color: #fff; width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; flex: none; }
+
+/* 次のシート準備 */
+.card.prep { background: linear-gradient(135deg, var(--accent-soft), var(--surface)); border-color: var(--accent); }
+.prep-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+.prep-head > div { display: grid; }
+.prep-head b { color: var(--accent-deep); font-size: 16px; }
+.prep-head span { color: var(--muted); font-size: 13px; }
+.prep-head .tanuki { flex: none; }
+@media (prefers-reduced-motion: reduce) { .b-pill.next { animation: none; } }

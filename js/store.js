@@ -6,7 +6,7 @@ export function defaultState() {
     version: 1,
     settings: {
       medName: '',
-      mode: 'fixed',
+      mode: 'flexible',   // 休薬は利用者が決める
       fixed: { activeDays: 21, restDays: 7 },
       flex: { minDays: 24, maxDays: 120, restDays: 4 },
       time: '21:00',
@@ -25,6 +25,8 @@ export function defaultState() {
     clinic: { name: '', phone: '' },
     stock: null,  // { base, since }
     push: { enabled: false },
+    sheet: null,        // 錠剤シートの起点 { since, used }
+    sheetPrepAck: {},   // 「次のシート準備した」を押したシート
     trackSince: null, // アプリで記録を始めた日(これより前は「未記録」にしない)
   };
 }
@@ -40,11 +42,20 @@ export function load() {
   try {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaultState();
-    return merge(defaultState(), JSON.parse(raw));
+    return migrate(merge(defaultState(), JSON.parse(raw)));
   } catch (e) {
     console.warn('load failed', e);
     return defaultState();
   }
+}
+
+// 旧版(休薬日が固定のパターン)からの移行: 休薬は利用者が決める方式にそろえる
+function migrate(st) {
+  if (st.settings.mode !== 'flexible') {
+    st.settings.mode = 'flexible';
+    st.cycles = (st.cycles || []).slice(-1).map((c) => ({ start: c.start, restStart: null, restDays: null }));
+  }
+  return st;
 }
 
 export function save(state) {
@@ -56,7 +67,7 @@ export function importJSON(text) {
   if (!data || typeof data !== 'object' || !data.settings || !Array.isArray(data.cycles)) {
     throw new Error('このファイルは のむログ のバックアップではないようです');
   }
-  return merge(defaultState(), data);
+  return migrate(merge(defaultState(), data));
 }
 
 export async function hashPin(pin, salt) {

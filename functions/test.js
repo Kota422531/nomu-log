@@ -23,4 +23,8 @@ assert.equal(decide({ ...doc, enabled: false, testRequested: true }, at('10:00')
 assert.ok(decide({ ...doc, lowStock: true }, at('21:00'))[0].body.includes('残り'));
 // 23:30 設定で 30分おき → 日付をまたぐ分は送らない
 assert.deepEqual(decide({ ...doc, time: '23:30' }, at('23:59')).map((n) => n.key), []);
+// 次のシート準備: 1回だけ・休薬中や記録済みでも送る
+assert.deepEqual(decide({ ...doc, sheetPrep: 's#0', takenDates: ['2026-10-20'] }, at('15:00')).map((n) => n.key), ['sheet-s#0']);
+assert.deepEqual(decide({ ...doc, sheetPrep: 's#0', sheetPrepSent: 's#0' }, at('15:00')).map((n) => n.key), []);
+assert.deepEqual(decide({ ...doc, sheetPrep: null }, at('15:00')).map((n) => n.key), []);
 console.log('functions tests: all passed');

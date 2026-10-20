@@ -5,7 +5,7 @@ import { tanuki } from './mascot.js';
 
 const PAW = '<svg class="paw" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="21" rx="7.5" ry="6.5"/><circle cx="7.5" cy="13" r="3.4"/><circle cx="12.5" cy="7.5" r="3.4"/><circle cx="19.5" cy="7.5" r="3.4"/><circle cx="24.5" cy="13" r="3.4"/></svg>';
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.1.0';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const WD = '日月火水木金土';
@@ -29,7 +29,12 @@ function commit(opts = {}) {
 }
 function pushPayload() {
   const s = state.settings;
-  return { time: s.time, repeatMin: Number(s.repeatMin), repeatCount: Number(s.repeatCount), ...C.buildSchedule(state) };
+  let sheetPrep = null;
+  if (state.cycles.length) {
+    const sv = C.sheetView(state);
+    if (sv.prepDue && !state.sheetPrepAck[sv.id]) sheetPrep = sv.id;
+  }
+  return { time: s.time, repeatMin: Number(s.repeatMin), repeatCount: Number(s.repeatCount), sheetPrep, ...C.buildSchedule(state) };
 }
 async function syncPush() {
   if (!state.push.enabled || !Push.isConfigured()) return;
@@ -71,43 +76,50 @@ function setTaken(date, taken, at) {
 
 // ---------- 画面: 今日 ----------
 function phaseLabel(info) {
-  const s = state.settings;
   if (info.phase === 'rest') return { big: `休薬 <em>${info.restDay}</em>日目`, sub: `${info.restTotal}日間のうち`, cls: 'rest' };
   if (info.phase !== 'active') return { big: 'まだ始まっていません', sub: '', cls: 'none' };
-  if (s.mode === 'fixed') return { big: `服用 <em>${info.day}</em>日目`, sub: `${s.fixed.activeDays}日間のうち`, cls: 'active' };
-  return { big: `連続服用 <em>${info.day}</em>日目`, sub: '休薬日は自分で選ぶ設定', cls: 'active' };
+  return { big: `服用 <em>${info.day}</em>日目`, sub: '服薬開始からの日数', cls: 'active' };
 }
 
+// 実物の錠剤シートと同じ並び(7錠×4列)。ラベルは服薬開始からの日数
 function sheetGrid(today) {
-  const s = state.settings;
+  if (!state.cycles.length) return '';
+  const v = C.sheetView(state, today);
   const info = C.dayInfo(state, today);
-  if (info.phase === 'none') return '';
-  const c = info.cycle;
-  let start, length, title;
-  if (s.mode === 'fixed') {
-    start = c.start; length = s.fixed.activeDays + s.fixed.restDays; title = '今のシート';
-  } else {
-    const activeLen = c.restStart ? C.diffDays(c.start, c.restStart) : null;
-    const dayIdx = info.phase === 'active' ? info.day - 1 : activeLen;
-    const block = Math.floor(dayIdx / 28);
-    start = C.addDays(c.start, block * 28); length = 28;
-    title = block > 0 ? `${block * 28 + 1}〜${block * 28 + 28}日目` : '1〜28日目';
-    if (c.restStart && c.restStart >= start && c.restStart < C.addDays(start, 28)) {
-      length = Math.min(28, C.diffDays(start, c.restStart) + c.restDays);
+  const canTakeNow = info.phase === 'active' && !C.isTaken(state, today);
+  let rows = '';
+  for (let r = 0; r < v.rows; r++) {
+    let cells = '';
+    for (let c = 0; c < 7; c++) {
+      const i = r * 7 + c;
+      if (i >= v.size) { cells += '<div class="b-cell void"></div>'; continue; }
+      const p = v.pills[i];
+      const isNext = i === v.nextPill;
+      const cls = p.taken ? 'taken' : (isNext && canTakeNow ? 'next' : '');
+      const label = p.taken ? esc(p.label) : '';
+      const aria = p.taken ? `${i + 1}錠目 ${p.assumed ? '' : fmt(p.date)} ${p.label}日目` : `${i + 1}錠目 まだ`;
+      cells += `<div class="b-cell ${c % 2 === 1 ? 'stripe' : ''}">
+        <span class="b-label ${p.label === '休' ? 'rest' : ''}">${label}</span>
+        <span class="b-wrap">${i === 0 ? '<span class="b-start" aria-hidden="true">スタート</span>' : ''}
+          <button class="b-pill ${cls}" ${p.taken && !p.assumed ? `data-day="${p.date}"` : ''} ${cls === 'next' ? 'data-take="1"' : ''} aria-label="${aria}"></button>
+        </span></div>`;
     }
+    rows += `<div class="b-row">${cells}</div>`;
   }
-  let cells = '';
-  for (let i = 0; i < length; i++) {
-    const d = C.addDays(start, i);
-    const st = C.dayStatus(state, d, today);
-    const di = C.dayInfo(state, d);
-    const num = di.phase === 'rest' ? '休' : (di.phase === 'active' ? di.day : '');
-    cells += `<button class="pill ${st} ${d === today ? 'is-today' : ''}" data-day="${d}" aria-label="${fmt(d)} ${statusText(st)}"><span>${num}</span></button>`;
+  // 休薬の表示(利用者が休薬を設定したときだけ)
+  let restBand = '';
+  const tInfo = C.dayInfo(state, C.addDays(today, 1));
+  if (info.phase === 'rest') {
+    const next = C.addDays(today, info.restTotal - info.restDay + 1);
+    restBand = `<div class="rest-band"><b>休</b><span>休薬中 ${info.restDay}/${info.restTotal}日目 ・ ${fmtShort(next)}から服用1日目</span></div>`;
+  } else if (tInfo.phase === 'rest' && tInfo.restDay === 1) {
+    restBand = `<div class="rest-band"><b>休</b><span>明日から${tInfo.restTotal}日間 休薬します</span></div>`;
   }
-  return `<section class="card">
-    <div class="card-head"><h3>${title}</h3><span class="muted small">タップで記録を修正</span></div>
-    <div class="sheet">${cells}</div>
-    <div class="legend"><span><i class="pill-dot taken"></i>飲んだ</span><span><i class="pill-dot missed"></i>未記録</span><span><i class="pill-dot rest"></i>休薬</span></div>
+  return `<section class="card blister-card">
+    <div class="card-head"><h3>シート</h3><span class="muted small">${v.usedInSheet} / ${v.size}錠</span></div>
+    ${restBand}
+    <div class="blister">${rows}</div>
+    <p class="sheet-note">シートの番号は服薬開始からの日数です。飲んだ錠剤をタップすると記録を直せます。</p>
   </section>`;
 }
 
@@ -189,6 +201,17 @@ function renderToday() {
     }
   }
 
+  // 次のシートの準備(最後の列の手前まで飲んだら)
+  let prepCard = '';
+  const sv = C.sheetView(state, today);
+  if (sv.prepDue && !state.sheetPrepAck[sv.id]) {
+    prepCard = `<section class="card prep">
+      <div class="prep-head">${tanuki('normal', 56)}<div><b>次のシートを準備しましたか?</b>
+      <span>今のシートは残り${sv.remaining}錠。もらい忘れに注意してね。</span></div></div>
+      <div class="btn-row tight"><button class="btn small primary" id="prep-ok">準備した</button><button class="btn small ghost" data-go="care">受診の予定を入れる</button></div>
+    </section>`;
+  }
+
   // 残り錠数
   let stockCard = '';
   const rem = C.remainingPills(state);
@@ -215,7 +238,7 @@ function renderToday() {
       ${hero}
       ${info.phase === 'active' && !taken ? `<span class="time-chip">🔔 ${esc(s.time)}${state.push.enabled ? ' にお知らせ' : '(通知は設定からオン)'}</span>` : ''}
     </section>
-    ${alertCard}${restCard}${stockCard}${visitCard}
+    ${alertCard}${prepCard}${restCard}${stockCard}${visitCard}
     ${sheetGrid(today)}`;
 }
 
@@ -245,7 +268,11 @@ function bindToday(v) {
     if (C.cancelRest(state, today)) { commit(); toast('休薬を取り消しました'); }
   });
   v.querySelectorAll('[data-day]').forEach((b) => b.addEventListener('click', () => openDay(b.dataset.day)));
-  v.querySelector('[data-go]')?.addEventListener('click', () => go('care'));
+  v.querySelectorAll('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
+  v.querySelector('[data-take]')?.addEventListener('click', () => { setTaken(today, true); commit(); toast('記録しました'); });
+  v.querySelector('#prep-ok')?.addEventListener('click', () => {
+    state.sheetPrepAck[C.sheetView(state, today).id] = true; commit(); toast('準備ばっちり！');
+  });
 }
 
 function showMissedHelp(after) {
@@ -394,83 +421,59 @@ function bindCare(v) {
 }
 
 // ---------- 服用パターンの設定(初回にも使う) ----------
-const PRESETS = [
-  { id: '21-7', label: '21日服用 + 7日休薬', a: 21, r: 7 },
-  { id: '24-4', label: '24日服用 + 4日休薬', a: 24, r: 4 },
-  { id: '28-0', label: '28日服用(休薬なし)', a: 28, r: 0 },
-  { id: 'custom', label: '日数を自分で決める' },
-  { id: 'flex', label: '連続服用(休薬日を自分で選ぶ)' },
-];
-function currentPreset(s) {
-  if (s.mode === 'flexible') return 'flex';
-  const p = PRESETS.find((x) => x.a === s.fixed.activeDays && x.r === s.fixed.restDays);
-  return p ? p.id : 'custom';
-}
 function setupForm(first) {
   const s = state.settings;
-  const cur = currentPreset(s);
   const today = C.todayStr();
   const info = state.cycles.length ? C.dayInfo(state, today) : { phase: 'active', day: 1 };
   const curPhase = info.phase === 'rest' ? 'rest' : 'active';
   const curDay = info.phase === 'rest' ? info.restDay : (info.day || 1);
+  const sv = state.cycles.length ? C.sheetView(state, today) : null;
+  const curUsed = sv ? sv.usedInSheet : 0;
   return `
   <form id="setup" class="setup">
     ${first ? `<div class="welcome"><div class="buddy"><div class="bubble">はじめまして！ぽんちゃんだよ</div>${tanuki('happy', 120)}</div><h2>はじめに</h2><p>おくすりの飲み方を教えてね。あとから設定で変えられるよ。記録はこのスマホの中だけに保存されます。</p></div>
-    <label class="field"><span>お薬の名前(任意・画面に表示するだけ)</span><input name="medName" value="${esc(s.medName)}" placeholder="例: いつものお薬"></label>` : '<h2 class="sheet-title">服用パターン</h2>'}
-    <fieldset class="field"><legend>服用パターン</legend>
-      <div class="radios">${PRESETS.map((p) => `<label class="radio"><input type="radio" name="preset" value="${p.id}" ${p.id === cur ? 'checked' : ''}><span>${p.label}</span></label>`).join('')}</div>
-    </fieldset>
-    <div class="sub" data-for="custom">
-      <div class="two"><label class="field"><span>服用日数</span><input type="number" name="a" min="1" max="365" value="${s.fixed.activeDays}"></label>
-      <label class="field"><span>休薬日数</span><input type="number" name="r" min="0" max="60" value="${s.fixed.restDays}"></label></div>
-    </div>
-    <div class="sub" data-for="flex">
-      <label class="field"><span>何日飲んだら休薬を選べるようにするか</span><input type="number" name="minDays" min="1" max="365" value="${s.flex.minDays}"></label>
-      <label class="field"><span>連続服用の上限(日)</span><input type="number" name="maxDays" min="1" max="730" value="${s.flex.maxDays}"></label>
-      <label class="field"><span>休薬日数</span><input type="number" name="fr" min="1" max="60" value="${s.flex.restDays}"></label>
-      <p class="muted small">日数はお薬の説明書や医師の指示に合わせてください。</p>
-    </div>
+    <label class="field"><span>お薬の名前(任意・画面に表示するだけ)</span><input name="medName" value="${esc(s.medName)}" placeholder="例: いつものお薬"></label>` : '<h2 class="sheet-title">服用の設定</h2>'}
     <fieldset class="field"><legend>今日は</legend>
       <div class="today-pick">
         <select name="phase"><option value="active" ${curPhase === 'active' ? 'selected' : ''}>服用</option><option value="rest" ${curPhase === 'rest' ? 'selected' : ''}>休薬</option></select>
         <input type="number" name="day" min="1" max="730" value="${curDay}"><span>日目</span>
       </div>
-      <p class="muted small">シートの途中からでも始められます。過去の記録はカレンダーから付けられます。</p>
+      <p class="muted small">服薬開始(または休薬開始)から数えた日数です。</p>
     </fieldset>
+    <div class="two">
+      <label class="field"><span>1シートの錠数</span><input type="number" name="sheetSize" min="7" max="84" step="7" value="${s.sheetSize}"></label>
+      <label class="field"><span>今のシートで飲んだ錠数<br><small>(今日の分を含む)</small></span><input type="number" name="used" min="0" max="84" value="${curUsed}"></label>
+    </div>
+    <div class="sub">
+      <p class="muted small" style="margin:0 0 8px">休薬日は決まっていません。休みたいときに「休薬する」を押した日から休薬になります。</p>
+      <div class="two">
+        <label class="field"><span>休薬の日数</span><input type="number" name="fr" min="1" max="60" value="${s.flex.restDays}"></label>
+        <label class="field"><span>何日飲んだら休薬できるか</span><input type="number" name="minDays" min="1" max="365" value="${s.flex.minDays}"></label>
+      </div>
+      <label class="field"><span>連続服用の上限(日)</span><input type="number" name="maxDays" min="1" max="730" value="${s.flex.maxDays}"></label>
+      <p class="muted small">日数はお薬の説明書や医師の指示に合わせてください。</p>
+    </div>
     ${first ? `<label class="field"><span>毎日の服用時刻</span><input type="time" name="time" value="${esc(s.time)}"></label>` : ''}
     <div class="btn-row">${first ? '' : '<button type="button" class="btn ghost" data-close>やめる</button>'}<button class="btn primary" type="submit">${first ? 'はじめる' : '保存'}</button></div>
   </form>`;
 }
 function bindSetup(root, first) {
   const f = $('#setup', root);
-  const upd = () => {
-    const p = f.preset.value;
-    f.querySelectorAll('.sub').forEach((el) => { el.hidden = el.dataset.for !== p; });
-  };
-  f.querySelectorAll('input[name=preset]').forEach((r) => r.addEventListener('change', upd));
-  upd();
   f.addEventListener('submit', (e) => {
     e.preventDefault();
     const s = state.settings;
-    const p = f.preset.value;
     const num = (v, d, min = 0) => { const n = parseInt(v, 10); return Number.isFinite(n) && n >= min ? n : d; };
-    if (p === 'flex') {
-      s.mode = 'flexible';
-      s.flex = { minDays: num(f.minDays.value, 24, 1), maxDays: num(f.maxDays.value, 120, 1), restDays: num(f.fr.value, 4, 1) };
-      if (s.flex.maxDays < s.flex.minDays) s.flex.maxDays = s.flex.minDays;
-    } else {
-      s.mode = 'fixed';
-      const pr = PRESETS.find((x) => x.id === p);
-      s.fixed = pr && pr.a ? { activeDays: pr.a, restDays: pr.r } : { activeDays: num(f.a.value, 21, 1), restDays: num(f.r.value, 7, 0) };
-    }
+    s.mode = 'flexible';
+    s.flex = { minDays: num(f.minDays.value, 24, 1), maxDays: num(f.maxDays.value, 120, 1), restDays: num(f.fr.value, 4, 1) };
+    if (s.flex.maxDays < s.flex.minDays) s.flex.maxDays = s.flex.minDays;
+    s.sheetSize = Math.min(84, Math.max(7, num(f.sheetSize.value, 28, 7)));
     if (first) { s.medName = f.medName.value.trim(); if (f.time.value) s.time = f.time.value; }
-    let phase = f.phase.value;
-    if (phase === 'rest' && s.mode === 'fixed' && s.fixed.restDays === 0) phase = 'active';
-    C.resetCycles(state, { phase, day: f.day.value });
+    C.resetCycles(state, { phase: f.phase.value, day: f.day.value });
+    C.setSheetUsed(state, Math.min(s.sheetSize, num(f.used.value, 0, 0)));
     if (!state.trackSince) state.trackSince = C.todayStr();
     if (!first) closeModal();
     commit();
-    toast(first ? '設定しました' : '服用パターンを変更しました');
+    toast(first ? '設定しました' : '設定を保存しました');
     if (first) requestPersist();
   });
 }
@@ -494,16 +497,21 @@ function pushStatusHTML() {
 function renderSettings() {
   const s = state.settings;
   const rem = C.remainingPills(state);
-  const patternText = s.mode === 'flexible'
-    ? `連続服用(${s.flex.minDays}日以降に休薬を選択・休薬${s.flex.restDays}日・上限${s.flex.maxDays}日)`
-    : (s.fixed.restDays ? `${s.fixed.activeDays}日服用 + ${s.fixed.restDays}日休薬` : `${s.fixed.activeDays}日服用(休薬なし)`);
+  const patternText = `休薬は自分で決める(休薬${s.flex.restDays}日間・${s.flex.minDays}日飲んだら休薬できる・上限${s.flex.maxDays}日)`;
+  const sv = state.cycles.length ? C.sheetView(state) : null;
   const opt = (vals, cur, unit) => vals.map((v) => `<option value="${v}" ${String(v) === String(cur) ? 'selected' : ''}>${v === 0 ? 'しない' : v + unit}</option>`).join('');
   return `
   <section class="card">
     <div class="card-head"><h3>お薬</h3></div>
     <label class="field"><span>名前(任意)</span><input id="medName" value="${esc(s.medName)}" placeholder="例: いつものお薬"></label>
-    <div class="kv"><span>服用パターン</span><b>${patternText}</b></div>
-    <button class="btn block" id="edit-pattern">服用パターン・今日が何日目かを変更</button>
+    <div class="kv"><span>休薬</span><b>${patternText}</b></div>
+    <button class="btn block" id="edit-pattern">服用の設定・今日が何日目かを変更</button>
+  </section>
+  <section class="card">
+    <div class="card-head"><h3>錠剤シート</h3>${sv ? `<span class="muted small">今のシート ${sv.usedInSheet} / ${sv.size}錠</span>` : ''}</div>
+    <label class="field"><span>1シートの錠数</span><input type="number" id="sheetSize" min="7" max="84" step="7" value="${s.sheetSize}"></label>
+    <p class="muted small">飲んだ順に1錠ずつシートが進み、最後の列の手前まで飲むと「次のシートを準備しましたか?」とお知らせします。</p>
+    <div class="btn-row tight"><button class="btn small" id="new-sheet">新しいシートにする</button><button class="btn small ghost" id="fix-sheet">飲んだ錠数を合わせる</button></div>
   </section>
   <section class="card">
     <div class="card-head"><h3>通知</h3></div>
@@ -517,10 +525,8 @@ function renderSettings() {
   </section>
   <section class="card">
     <div class="card-head"><h3>残り錠数</h3>${rem != null ? `<b class="big-num">${Math.max(rem, 0)}<small>錠</small></b>` : ''}</div>
-    <div class="two">
-      <label class="field"><span>1シートの錠数</span><input type="number" id="sheetSize" min="1" max="200" value="${s.sheetSize}"></label>
-      <label class="field"><span>残りが何錠で知らせる</span><input type="number" id="lowStockAt" min="0" max="200" value="${s.lowStockAt}"></label>
-    </div>
+    <p class="muted small">予備のシートも含めた、手元にある錠数です。</p>
+    <label class="field"><span>残りが何錠で知らせる</span><input type="number" id="lowStockAt" min="0" max="200" value="${s.lowStockAt}"></label>
     <div class="btn-row tight"><button class="btn small" id="add-sheet">＋ 1シート追加</button><button class="btn small ghost" id="set-stock">残り数を入力</button></div>
   </section>
   <section class="card">
@@ -546,7 +552,17 @@ function bindSettings(v) {
   $('#time', v).addEventListener('change', (e) => { if (e.target.value) { s.time = e.target.value; commit({ silent: true }); toast(`通知を ${s.time} にしました`); } });
   $('#repeatMin', v).addEventListener('change', (e) => { s.repeatMin = Number(e.target.value); commit({ silent: true }); });
   $('#repeatCount', v).addEventListener('change', (e) => { s.repeatCount = Number(e.target.value); commit({ silent: true }); });
-  $('#sheetSize', v).addEventListener('change', (e) => { s.sheetSize = Math.max(1, parseInt(e.target.value, 10) || 28); commit({ silent: true }); });
+  $('#sheetSize', v).addEventListener('change', (e) => { s.sheetSize = Math.min(84, Math.max(7, parseInt(e.target.value, 10) || 28)); commit(); });
+  $('#new-sheet', v).onclick = () => confirmBox('新しいシートにしますか?', `次に飲む1錠を、新しいシートの1錠目にします。${C.isTaken(state, C.todayStr()) ? '(今日の分は今のシートのまま)' : ''}`, '新しいシートにする', () => {
+    C.startNewSheet(state); commit(); toast('新しいシートにしました');
+  });
+  $('#fix-sheet', v).onclick = () => openModal(`<h2 class="sheet-title">飲んだ錠数を合わせる</h2>
+    <label class="field"><span>今のシートで、すでに飲んだ錠数(今日の分を含む)</span><input type="number" id="n" min="0" max="${s.sheetSize}" value="${C.sheetView(state).usedInSheet}"></label>
+    <div class="btn-row"><button class="btn ghost" data-close>やめる</button><button class="btn primary" id="ok">保存</button></div>`,
+  (m) => { $('#ok', m).onclick = () => {
+    C.setSheetUsed(state, Math.min(s.sheetSize, Math.max(0, parseInt($('#n', m).value, 10) || 0)));
+    closeModal(); commit(); toast('シートを合わせました');
+  }; });
   $('#lowStockAt', v).addEventListener('change', (e) => { s.lowStockAt = Math.max(0, parseInt(e.target.value, 10) || 0); commit(); });
   $('#add-sheet', v).onclick = () => {
     if (!state.stock) state.stock = { base: 0, since: C.todayStr() };
