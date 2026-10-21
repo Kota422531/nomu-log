@@ -5,7 +5,7 @@ import { tanuki } from './mascot.js';
 
 const PAW = '<svg class="paw" viewBox="0 0 32 32" aria-hidden="true"><ellipse cx="16" cy="21" rx="7.5" ry="6.5"/><circle cx="7.5" cy="13" r="3.4"/><circle cx="12.5" cy="7.5" r="3.4"/><circle cx="19.5" cy="7.5" r="3.4"/><circle cx="24.5" cy="13" r="3.4"/></svg>';
 
-const APP_VERSION = '1.1.0';
+const APP_VERSION = '1.1.1';
 const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const WD = '日月火水木金土';
@@ -24,7 +24,7 @@ function commit(opts = {}) {
   if (!opts.silent) render();
   if (state.push.enabled) {
     clearTimeout(syncTimer);
-    syncTimer = setTimeout(syncPush, 600);
+    syncTimer = setTimeout(syncPush, 150);
   }
 }
 function pushPayload() {
@@ -34,9 +34,10 @@ function pushPayload() {
     const sv = C.sheetView(state);
     if (sv.prepDue && !state.sheetPrepAck[sv.id]) sheetPrep = sv.id;
   }
-  return { time: s.time, repeatMin: Number(s.repeatMin), repeatCount: Number(s.repeatCount), sheetPrep, ...C.buildSchedule(state) };
+  return { time: s.time, repeatMin: Number(s.repeatMin), repeatCount: Number(s.repeatCount), remindEvenIfTaken: !!s.remindEvenIfTaken, sheetPrep, ...C.buildSchedule(state) };
 }
 async function syncPush() {
+  syncTimer = null;
   if (!state.push.enabled || !Push.isConfigured()) return;
   try { await Push.sync({ ...pushPayload(), enabled: true }); state.push.lastSync = new Date().toISOString(); save(state); }
   catch (e) { console.warn('sync failed', e); }
@@ -72,6 +73,20 @@ function confirmBox(title, body, okLabel, onOk, danger = false) {
 function setTaken(date, taken, at) {
   if (taken) state.logs[date] = { taken: true, at: at || nowHM() };
   else delete state.logs[date];
+}
+
+// 次の通知がいつ来るかを、利用者に分かる言葉で
+function reminderText(today = C.todayStr()) {
+  const s = state.settings;
+  if (!state.push.enabled) return `${esc(s.time)}(通知は設定からオン)`;
+  const info = C.dayInfo(state, today);
+  const now = new Date();
+  const [h, m] = s.time.split(':').map(Number);
+  const passed = now.getHours() * 60 + now.getMinutes() > h * 60 + m;
+  if (info.phase !== 'active') return `休薬中は通知をお休み`;
+  if (C.isTaken(state, today) && !s.remindEvenIfTaken) return `今日は記録済みなので通知なし・明日 ${esc(s.time)}`;
+  if (passed) return `今日の ${esc(s.time)} の通知は送信済み`;
+  return `今日 ${esc(s.time)} にお知らせ`;
 }
 
 // ---------- 画面: 今日 ----------
@@ -236,7 +251,7 @@ function renderToday() {
       ${s.medName ? `<div class="medname">${esc(s.medName)}</div>` : ''}
       <div class="phase"><b>${pl.big}</b><span>${pl.sub}</span></div>
       ${hero}
-      ${info.phase === 'active' && !taken ? `<span class="time-chip">🔔 ${esc(s.time)}${state.push.enabled ? ' にお知らせ' : '(通知は設定からオン)'}</span>` : ''}
+      ${info.phase === 'active' ? `<span class="time-chip">🔔 ${reminderText(today)}</span>` : ''}
     </section>
     ${alertCard}${prepCard}${restCard}${stockCard}${visitCard}
     ${sheetGrid(today)}`;
@@ -520,7 +535,10 @@ function renderSettings() {
       <label class="field"><span>記録がないとき再通知</span><select id="repeatMin">${opt([0, 10, 15, 30, 60], s.repeatMin, '分おき')}</select></label>
       <label class="field"><span>再通知の回数</span><select id="repeatCount">${opt([1, 2, 3, 4, 6], s.repeatCount, '回まで')}</select></label>
     </div>
-    <p class="muted small">休薬日と、すでに「飲んだ」を記録した日は通知しません。受診日の前日にもお知らせします。</p>
+    <label class="check-row"><input type="checkbox" id="remindEvenIfTaken" ${s.remindEvenIfTaken ? 'checked' : ''}>
+      <span>先に「のんだ」を記録した日も、時刻になったら通知する</span></label>
+    <p class="muted small">オフのときは、通知の時刻より前に「のんだ」を記録した日は通知しません(飲んだのに通知が来ないようにするため)。休薬中も通知はお休みです。受診日の前日にもお知らせします。</p>
+    ${state.cycles.length ? `<p class="next-line">🔔 ${reminderText()}</p>` : ''}
     <div id="push-status">${pushStatusHTML()}</div>
   </section>
   <section class="card">
@@ -549,9 +567,10 @@ function bindSettings(v) {
   const s = state.settings;
   $('#medName', v).addEventListener('change', (e) => { s.medName = e.target.value.trim(); commit({ silent: true }); toast('保存しました'); });
   $('#edit-pattern', v).onclick = () => openModal(setupForm(false), (m) => bindSetup(m, false));
-  $('#time', v).addEventListener('change', (e) => { if (e.target.value) { s.time = e.target.value; commit({ silent: true }); toast(`通知を ${s.time} にしました`); } });
+  $('#time', v).addEventListener('change', (e) => { if (e.target.value) { s.time = e.target.value; commit(); toast(`通知を ${s.time} にしました(${reminderText().replace(/<[^>]+>/g, '')})`); } });
   $('#repeatMin', v).addEventListener('change', (e) => { s.repeatMin = Number(e.target.value); commit({ silent: true }); });
   $('#repeatCount', v).addEventListener('change', (e) => { s.repeatCount = Number(e.target.value); commit({ silent: true }); });
+  $('#remindEvenIfTaken', v).addEventListener('change', (e) => { s.remindEvenIfTaken = e.target.checked; commit(); });
   $('#sheetSize', v).addEventListener('change', (e) => { s.sheetSize = Math.min(84, Math.max(7, parseInt(e.target.value, 10) || 28)); commit(); });
   $('#new-sheet', v).onclick = () => confirmBox('新しいシートにしますか?', `次に飲む1錠を、新しいシートの1錠目にします。${C.isTaken(state, C.todayStr()) ? '(今日の分は今のシートのまま)' : ''}`, '新しいシートにする', () => {
     C.startNewSheet(state); commit(); toast('新しいシートにしました');
@@ -693,7 +712,11 @@ function render() {
 // 日付が変わったら描き直す・しばらく閉じていたらロック
 let lastDay = C.todayStr();
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) { hiddenAt = Date.now(); return; }
+  if (document.hidden) {
+    hiddenAt = Date.now();
+    if (syncTimer) { clearTimeout(syncTimer); syncTimer = null; syncPush(); } // 閉じる前に未送信の変更を送る
+    return;
+  }
   if (state.settings.lockHash && Date.now() - hiddenAt > 60_000 && hiddenAt) showLock();
   if (C.todayStr() !== lastDay) { lastDay = C.todayStr(); calMonth = lastDay.slice(0, 7); }
   state = load();

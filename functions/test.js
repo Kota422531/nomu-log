@@ -10,8 +10,8 @@ const doc = {
 
 assert.deepEqual(decide(doc, at('20:55')).map((n) => n.key), []);
 assert.deepEqual(decide(doc, at('21:00')).map((n) => n.key), ['dose-0', 'visit']);
-assert.deepEqual(decide(doc, at('21:05')).map((n) => n.key), ['dose-0', 'visit']); // まだ送っていなければ拾う
-assert.deepEqual(decide({ ...doc, sent: { day: '2026-10-20', keys: ['dose-0', 'visit'] } }, at('21:05')).map((n) => n.key), []); // 重複しない
+assert.deepEqual(decide(doc, at('21:04')).map((n) => n.key), ['dose-0', 'visit']); // まだ送っていなければ拾う
+assert.deepEqual(decide({ ...doc, sent: { day: '2026-10-20', keys: ['dose-0', 'visit'] } }, at('21:04')).map((n) => n.key), []); // 重複しない
 assert.deepEqual(decide(doc, at('21:30')).map((n) => n.key), ['dose-1']);
 assert.deepEqual(decide(doc, at('22:30')).map((n) => n.key), ['dose-3']);
 assert.deepEqual(decide(doc, at('23:00')).map((n) => n.key), []); // 3回まで
@@ -27,4 +27,14 @@ assert.deepEqual(decide({ ...doc, time: '23:30' }, at('23:59')).map((n) => n.key
 assert.deepEqual(decide({ ...doc, sheetPrep: 's#0', takenDates: ['2026-10-20'] }, at('15:00')).map((n) => n.key), ['sheet-s#0']);
 assert.deepEqual(decide({ ...doc, sheetPrep: 's#0', sheetPrepSent: 's#0' }, at('15:00')).map((n) => n.key), []);
 assert.deepEqual(decide({ ...doc, sheetPrep: null }, at('15:00')).map((n) => n.key), []);
+// 毎分実行: 指定時刻ちょうどに送る
+assert.deepEqual(decide(doc, at('21:00')).map((n) => n.key), ['dose-0', 'visit']);
+assert.deepEqual(decide(doc, at('20:59')).map((n) => n.key), []);
+assert.deepEqual(decide(doc, at('21:05')).map((n) => n.key), []); // 窓(5分)の外
+// 先に記録した日: 既定は送らない / オプションONなら時刻の1回だけ送る(再通知はしない)
+const takenToday = { ...doc, takenDates: ['2026-10-20'], visitEves: [] };
+assert.deepEqual(decide(takenToday, at('21:00')).map((n) => n.key), []);
+assert.deepEqual(decide({ ...takenToday, remindEvenIfTaken: true }, at('21:00')).map((n) => n.key), ['dose-0']);
+assert.deepEqual(decide({ ...takenToday, remindEvenIfTaken: true }, at('21:30')).map((n) => n.key), []);
+assert.deepEqual(decide({ ...takenToday, remindEvenIfTaken: true }, at('21:00', '2026-10-22')).map((n) => n.key), []); // 休薬日は送らない
 console.log('functions tests: all passed');

@@ -8,9 +8,9 @@ const { decide, localNow } = require('./logic');
 initializeApp();
 const db = getFirestore();
 
-// 5分ごとに、通知が必要な端末へプッシュを送る
+// 毎分、通知が必要な端末へプッシュを送る
 exports.medReminder = onSchedule(
-  { schedule: 'every 5 minutes', timeZone: 'Asia/Tokyo', region: 'asia-northeast1', memory: '256MiB', timeoutSeconds: 120 },
+  { schedule: 'every 1 minutes', timeZone: 'Asia/Tokyo', region: 'asia-northeast1', memory: '256MiB', timeoutSeconds: 120 },
   async () => {
     const now = new Date();
     const snap = await db.collection('devices').where('token', '!=', null).get();

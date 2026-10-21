@@ -12,6 +12,7 @@ export function defaultState() {
       time: '21:00',
       repeatMin: 30,      // 未記録のとき何分おきに再通知するか(0=しない)
       repeatCount: 3,     // 再通知の最大回数
+      remindEvenIfTaken: false, // 先に記録した日も時刻に通知するか
       sheetSize: 28,
       lowStockAt: 7,
       missedNote: '',     // 飲み忘れたときの対処(添付文書や医師の指示を自分でメモ)

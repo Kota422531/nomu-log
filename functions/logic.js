@@ -1,5 +1,5 @@
 // 通知を送るかどうかの判定(テストしやすいように Firebase から切り離している)
-const WINDOW_MIN = 10; // 実行間隔(5分)より少し長くとり、取りこぼしを防ぐ(重複は sentKeys で防ぐ)
+const WINDOW_MIN = 5; // 毎分実行。実行が遅れても5分以内なら拾う(重複は sent.keys で防ぐ)
 
 function localNow(date, tz) {
   const parts = Object.fromEntries(
@@ -32,9 +32,14 @@ function decide(doc, now = new Date()) {
   const started = !doc.startDate || day >= doc.startDate;
   const rest = (doc.restDates || []).includes(day);
   const taken = (doc.takenDates || []).includes(day);
-  if (started && !rest && !taken) {
+  const remindAnyway = !!doc.remindEvenIfTaken;
+  if (started && !rest && (!taken || remindAnyway)) {
     const low = doc.lowStock ? '\n残りが少なくなっています。次のシートの準備を。' : '';
-    if (inWindow(base)) push({ key: 'dose-0', title: 'お薬の時間です', body: `今日の分を飲んだら、アプリで記録してください。${low}`, tag: 'dose' });
+    const body = taken ? `今日の分は記録済みです。${low}` : `今日の分を飲んだら、アプリで記録してください。${low}`;
+    if (inWindow(base)) push({ key: 'dose-0', title: 'お薬の時間です', body, tag: 'dose' });
+  }
+  // 再通知は「まだ記録していない日」だけ
+  if (started && !rest && !taken) {
     const every = Number(doc.repeatMin) || 0;
     const count = Math.min(Number(doc.repeatCount) || 0, 12);
     if (every > 0) {
